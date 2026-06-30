@@ -24,7 +24,7 @@
         </p>
         <div class="hero-actions">
             <a href="{{ url_for('register') }}" class="btn-primary">Create free account</a>
-            <a href="#features" class="btn-primary">See how it works</a>
+            <a href="#" class="btn-primary" id="howItWorksBtn">See how it works</a>
         </div>
     </div>
 
@@ -104,4 +104,57 @@
     </div>
 </section>
 
+<!-- How it works modal -->
+<div class="modal-overlay" id="howItWorksModal" aria-hidden="true">
+    <div class="modal-box" role="dialog" aria-label="How Spendly works">
+        <button class="modal-close" id="modalClose" aria-label="Close">&times;</button>
+        <div class="modal-video-wrap">
+            <iframe id="modalVideo"
+                src=""
+                title="How Spendly works"
+                frameborder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen>
+            </iframe>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    var VIDEO_SRC = 'https://www.youtube.com/embed/dQw4w9WgXcQ?autoplay=1';
+    var modal  = document.getElementById('howItWorksModal');
+    var iframe = document.getElementById('modalVideo');
+
+    function openModal() {
+        iframe.src = VIDEO_SRC;
+        modal.setAttribute('aria-hidden', 'false');
+        modal.classList.add('is-open');
+    }
+
+    function closeModal() {
+        iframe.src = '';
+        modal.setAttribute('aria-hidden', 'true');
+        modal.classList.remove('is-open');
+    }
+
+    document.getElementById('howItWorksBtn').addEventListener('click', function (e) {
+        e.preventDefault();
+        openModal();
+    });
+
+    document.getElementById('modalClose').addEventListener('click', closeModal);
+
+    modal.addEventListener('click', function (e) {
+        if (e.target === modal) closeModal();
+    });
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') closeModal();
+    });
+}());
+</script>
 {% endblock %}
