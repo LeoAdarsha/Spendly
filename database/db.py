@@ -1,9 +1,11 @@
 """SQLite data-access layer for Spendly.
 
 Provides:
-    get_db()   — open a connection to expense_tracker.db (row_factory + FKs on)
-    init_db()  — create tables (idempotent)
-    seed_db()  — insert demo data for development (idempotent)
+    get_db()            — open a connection to expense_tracker.db (row_factory + FKs on)
+    init_db()           — create tables (idempotent)
+    seed_db()           — insert demo data for development (idempotent)
+    get_user_by_email() — look up a user row by email
+    create_user()       — insert a new user, return its new id
 """
 
 import os
@@ -102,3 +104,24 @@ def seed_db():
     )
     conn.commit()
     conn.close()
+
+
+def get_user_by_email(email):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM users WHERE email = ?", (email,)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def create_user(name, email, password_hash):
+    conn = get_db()
+    cursor = conn.execute(
+        "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
+        (name, email, password_hash),
+    )
+    conn.commit()
+    user_id = cursor.lastrowid
+    conn.close()
+    return user_id
