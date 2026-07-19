@@ -8,6 +8,10 @@
 
 {% block content %}
 
+{% if session.get('user_id') %}
+<p class="welcome-line">Welcome back!</p>
+{% endif %}
+
 <section class="hero">
     <div class="hero-inner">
         <div class="hero-badge">
