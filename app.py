@@ -1,9 +1,33 @@
 import os
+from datetime import datetime
 
 from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from database.db import create_user, get_db, get_user_by_email, init_db, seed_db
+from database.db import (
+    create_user,
+    get_category_totals,
+    get_db,
+    get_expenses_by_user,
+    get_user_by_email,
+    get_user_by_id,
+    init_db,
+    seed_db,
+)
+
+CATEGORY_TONE = {
+    "Food": "accent",
+    "Transport": "neutral",
+    "Bills": "accent",
+    "Health": "accent",
+    "Entertainment": "amber",
+    "Shopping": "neutral",
+    "Other": "neutral",
+}
+
+
+def format_currency(amount):
+    return "₹{:,.2f}".format(amount)
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
@@ -94,7 +118,57 @@ def logout():
 
 @app.route("/profile")
 def profile():
-    return "Profile page — coming in Step 4"
+    user_id = session.get("user_id")
+    if user_id is None:
+        return redirect(url_for("login"))
+
+    user = get_user_by_id(user_id)
+    member_since = datetime.strptime(
+        user["created_at"], "%Y-%m-%d %H:%M:%S"
+    ).strftime("%B %Y")
+    initials = "".join(part[0].upper() for part in user["name"].split()[:2])
+
+    expenses = get_expenses_by_user(user_id)
+    category_totals = get_category_totals(user_id)
+
+    total_spent = sum(e["amount"] for e in expenses)
+    top_category = category_totals[0]["category"] if category_totals else None
+    max_category_total = category_totals[0]["total"] if category_totals else 0
+
+    recent_expenses = [
+        {
+            "date": datetime.strptime(e["date"], "%Y-%m-%d").strftime("%b %d, %Y"),
+            "description": e["description"],
+            "category": e["category"],
+            "tone": CATEGORY_TONE.get(e["category"], "neutral"),
+            "amount": format_currency(e["amount"]),
+        }
+        for e in expenses[:5]
+    ]
+
+    categories = [
+        {
+            "category": row["category"],
+            "amount": format_currency(row["total"]),
+            "percent": round(row["total"] / max_category_total * 100)
+            if max_category_total
+            else 0,
+        }
+        for row in category_totals
+    ]
+
+    return render_template(
+        "profile.html",
+        name=user["name"],
+        email=user["email"],
+        member_since=member_since,
+        initials=initials,
+        total_spent=format_currency(total_spent),
+        transaction_count=len(expenses),
+        top_category=top_category,
+        recent_expenses=recent_expenses,
+        categories=categories,
+    )
 
 
 @app.route("/expenses/add")

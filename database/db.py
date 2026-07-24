@@ -5,7 +5,10 @@ Provides:
     init_db()           — create tables (idempotent)
     seed_db()           — insert demo data for development (idempotent)
     get_user_by_email() — look up a user row by email
+    get_user_by_id()     — look up a user row by primary key
     create_user()       — insert a new user, return its new id
+    get_expenses_by_user() — all expenses for a user, most recent first
+    get_category_totals()  — per-category spend totals for a user, highest first
 """
 
 import os
@@ -113,6 +116,41 @@ def get_user_by_email(email):
     ).fetchone()
     conn.close()
     return row
+
+
+def get_user_by_id(user_id):
+    conn = get_db()
+    row = conn.execute(
+        "SELECT * FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    conn.close()
+    return row
+
+
+def get_expenses_by_user(user_id):
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM expenses WHERE user_id = ? ORDER BY date DESC, id DESC",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def get_category_totals(user_id):
+    conn = get_db()
+    rows = conn.execute(
+        """
+        SELECT category, SUM(amount) AS total
+        FROM expenses
+        WHERE user_id = ?
+        GROUP BY category
+        ORDER BY total DESC
+        """,
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return rows
 
 
 def create_user(name, email, password_hash):
