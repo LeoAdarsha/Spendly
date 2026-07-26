@@ -2,6 +2,10 @@
 
 {% block title %}Your profile — Spendly{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/profile.css') }}">
+{% endblock %}
+
 {% block content %}
 
 <div class="profile-page">
@@ -17,21 +21,26 @@
 
     <div class="stats-grid">
         <div class="stat-card">
+            <span class="stat-icon"><i data-lucide="wallet"></i></span>
             <div class="stat-value">{{ total_spent }}</div>
             <div class="stat-label">Total spent</div>
         </div>
         <div class="stat-card">
+            <span class="stat-icon"><i data-lucide="arrow-down-right"></i></span>
             <div class="stat-value">{{ transaction_count }}</div>
             <div class="stat-label">Transactions</div>
         </div>
         <div class="stat-card">
+            <span class="stat-icon"><i data-lucide="tag"></i></span>
             <div class="stat-value">{{ top_category or "—" }}</div>
             <div class="stat-label">Top category</div>
         </div>
     </div>
 
     <div class="dashboard-card">
-        <h2 class="dashboard-card-title">Recent Transactions</h2>
+        <h2 class="dashboard-card-title">
+            <i data-lucide="receipt"></i>Recent Transactions
+        </h2>
         {% if recent_expenses %}
         <div class="table-scroll">
             <table class="txn-table">
@@ -61,14 +70,18 @@
     </div>
 
     <div class="dashboard-card">
-        <h2 class="dashboard-card-title">Spending by Category</h2>
+        <h2 class="dashboard-card-title">
+            <i data-lucide="pie-chart"></i>Spending by Category
+        </h2>
         {% if categories %}
         <div class="category-list">
             {% for c in categories %}
             <div class="category-row">
                 <span class="category-name">{{ c.category }}</span>
-                <div class="category-bar-track">
-                    <div class="category-bar-fill" style="width: {{ c.percent }}%"></div>
+                <div class="category-bar-track" role="progressbar"
+                     aria-label="{{ c.category }} share of highest category"
+                     aria-valuenow="{{ c.percent }}" aria-valuemin="0" aria-valuemax="100">
+                    <div class="category-bar-fill category-bar-fill--{{ c.percent_step }}"></div>
                 </div>
                 <span class="category-amount">{{ c.amount }}</span>
             </div>

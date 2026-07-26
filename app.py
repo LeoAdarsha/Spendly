@@ -1,16 +1,12 @@
 import os
-from datetime import datetime
 
 from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import (
     create_user,
-    get_category_totals,
     get_db,
-    get_expenses_by_user,
     get_user_by_email,
-    get_user_by_id,
     init_db,
     seed_db,
 )
@@ -24,6 +20,41 @@ CATEGORY_TONE = {
     "Shopping": "neutral",
     "Other": "neutral",
 }
+
+
+# Step 4 shows the finished profile layout with static data so the design can be
+# validated before any queries exist. Step 5 replaces everything below with real
+# lookups against the users/expenses tables.
+PROFILE_USER = {
+    "initials": "NS",
+    "name": "Nitish Singh",
+    "email": "nitish@spendly.com",
+    "member_since": "January 2025",
+}
+
+PROFILE_TRANSACTIONS = [
+    {"date": "Apr 08, 2026", "description": "Lunch with colleagues", "category": "Food", "amount": 180.00},
+    {"date": "Apr 08, 2026", "description": "Miscellaneous", "category": "Other", "amount": 200.00},
+    {"date": "Apr 07, 2026", "description": "New earphones", "category": "Shopping", "amount": 800.00},
+    {"date": "Apr 06, 2026", "description": "Movie tickets", "category": "Entertainment", "amount": 500.00},
+    {"date": "Apr 05, 2026", "description": "Pharmacy — vitamins", "category": "Health", "amount": 350.00},
+    {"date": "Apr 03, 2026", "description": "Electricity bill", "category": "Bills", "amount": 1200.00},
+    {"date": "Apr 02, 2026", "description": "Metro card recharge", "category": "Transport", "amount": 120.00},
+    {"date": "Apr 01, 2026", "description": "Groceries at the local market", "category": "Food", "amount": 450.00},
+]
+
+# Highest first, so the first entry drives the width of every progress bar.
+PROFILE_CATEGORY_TOTALS = [
+    ("Bills", 1200.00),
+    ("Shopping", 800.00),
+    ("Food", 630.00),
+    ("Entertainment", 500.00),
+    ("Health", 350.00),
+    ("Other", 200.00),
+    ("Transport", 120.00),
+]
+
+RECENT_LIMIT = 5
 
 
 def format_currency(amount):
@@ -40,6 +71,15 @@ with app.app_context():
 # ------------------------------------------------------------------ #
 # Routes                                                              #
 # ------------------------------------------------------------------ #
+
+@app.context_processor
+def inject_current_user():
+    # Step 4 is UI-only: the navbar name comes from the same hardcoded
+    # profile constant. Step 5 replaces this with get_user_by_id().
+    if session.get("user_id") is None:
+        return {"current_user_name": None}
+    return {"current_user_name": PROFILE_USER["name"]}
+
 
 @app.route("/")
 def landing():
@@ -77,7 +117,7 @@ def register():
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if session.get("user_id") is not None:
-        return redirect(url_for("landing"))
+        return redirect(url_for("profile"))
 
     if request.method == "POST":
         email = request.form.get("email", "").strip().lower()
@@ -91,7 +131,7 @@ def login():
             ), 401
 
         session["user_id"] = user["id"]
-        return redirect(url_for("landing"))
+        return redirect(url_for("profile"))
 
     return render_template("login.html")
 
@@ -118,53 +158,48 @@ def logout():
 
 @app.route("/profile")
 def profile():
-    user_id = session.get("user_id")
-    if user_id is None:
+    if session.get("user_id") is None:
         return redirect(url_for("login"))
 
-    user = get_user_by_id(user_id)
-    member_since = datetime.strptime(
-        user["created_at"], "%Y-%m-%d %H:%M:%S"
-    ).strftime("%B %Y")
-    initials = "".join(part[0].upper() for part in user["name"].split()[:2])
-
-    expenses = get_expenses_by_user(user_id)
-    category_totals = get_category_totals(user_id)
-
-    total_spent = sum(e["amount"] for e in expenses)
-    top_category = category_totals[0]["category"] if category_totals else None
-    max_category_total = category_totals[0]["total"] if category_totals else 0
+    total_spent = sum(t["amount"] for t in PROFILE_TRANSACTIONS)
+    top_category = PROFILE_CATEGORY_TOTALS[0][0] if PROFILE_CATEGORY_TOTALS else None
+    max_category_total = (
+        PROFILE_CATEGORY_TOTALS[0][1] if PROFILE_CATEGORY_TOTALS else 0
+    )
 
     recent_expenses = [
         {
-            "date": datetime.strptime(e["date"], "%Y-%m-%d").strftime("%b %d, %Y"),
-            "description": e["description"],
-            "category": e["category"],
-            "tone": CATEGORY_TONE.get(e["category"], "neutral"),
-            "amount": format_currency(e["amount"]),
+            "date": t["date"],
+            "description": t["description"],
+            "category": t["category"],
+            "tone": CATEGORY_TONE.get(t["category"], "neutral"),
+            "amount": format_currency(t["amount"]),
         }
-        for e in expenses[:5]
+        for t in PROFILE_TRANSACTIONS[:RECENT_LIMIT]
     ]
 
-    categories = [
-        {
-            "category": row["category"],
-            "amount": format_currency(row["total"]),
-            "percent": round(row["total"] / max_category_total * 100)
-            if max_category_total
-            else 0,
-        }
-        for row in category_totals
-    ]
+    categories = []
+    for category, total in PROFILE_CATEGORY_TOTALS:
+        percent = round(total / max_category_total * 100) if max_category_total else 0
+        categories.append(
+            {
+                "category": category,
+                "amount": format_currency(total),
+                "percent": percent,
+                # Bar widths come from CSS classes in 5% steps — the spec
+                # forbids inline styles, so the width can't be interpolated.
+                "percent_step": round(percent / 5) * 5,
+            }
+        )
 
     return render_template(
         "profile.html",
-        name=user["name"],
-        email=user["email"],
-        member_since=member_since,
-        initials=initials,
+        name=PROFILE_USER["name"],
+        email=PROFILE_USER["email"],
+        member_since=PROFILE_USER["member_since"],
+        initials=PROFILE_USER["initials"],
         total_spent=format_currency(total_spent),
-        transaction_count=len(expenses),
+        transaction_count=len(PROFILE_TRANSACTIONS),
         top_category=top_category,
         recent_expenses=recent_expenses,
         categories=categories,
