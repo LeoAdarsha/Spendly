@@ -103,6 +103,19 @@ a { color: inherit; text-decoration: none; }
 .nav-links a { color: var(--ink-muted); transition: color 0.2s; }
 .nav-links a:hover { color: var(--ink); }
 
+.nav-user {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--ink);
+}
+
+.nav-user svg {
+    width: 16px;
+    height: 16px;
+    color: var(--ink-faint);
+}
+
 .nav-cta {
     background: var(--ink) !important;
     color: var(--paper) !important;
@@ -602,6 +615,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 600px) {
-    .nav-links a:not(.nav-cta) { display: none; }
+    .nav-links a:not(.nav-cta),
+    .nav-user { display: none; }
     .hero { padding: 3rem 1rem 2rem; }
 }
