@@ -1,12 +1,16 @@
 import os
+from datetime import datetime
 
 from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import (
     create_user,
+    get_category_totals,
     get_db,
+    get_expenses_by_user,
     get_user_by_email,
+    get_user_by_id,
     init_db,
     seed_db,
 )
@@ -21,44 +25,52 @@ CATEGORY_TONE = {
     "Other": "neutral",
 }
 
-
-# Step 4 shows the finished profile layout with static data so the design can be
-# validated before any queries exist. Step 5 replaces everything below with real
-# lookups against the users/expenses tables.
-PROFILE_USER = {
-    "initials": "NS",
-    "name": "Nitish Singh",
-    "email": "nitish@spendly.com",
-    "member_since": "January 2025",
-}
-
-PROFILE_TRANSACTIONS = [
-    {"date": "Apr 08, 2026", "description": "Lunch with colleagues", "category": "Food", "amount": 180.00},
-    {"date": "Apr 08, 2026", "description": "Miscellaneous", "category": "Other", "amount": 200.00},
-    {"date": "Apr 07, 2026", "description": "New earphones", "category": "Shopping", "amount": 800.00},
-    {"date": "Apr 06, 2026", "description": "Movie tickets", "category": "Entertainment", "amount": 500.00},
-    {"date": "Apr 05, 2026", "description": "Pharmacy — vitamins", "category": "Health", "amount": 350.00},
-    {"date": "Apr 03, 2026", "description": "Electricity bill", "category": "Bills", "amount": 1200.00},
-    {"date": "Apr 02, 2026", "description": "Metro card recharge", "category": "Transport", "amount": 120.00},
-    {"date": "Apr 01, 2026", "description": "Groceries at the local market", "category": "Food", "amount": 450.00},
-]
-
-# Highest first, so the first entry drives the width of every progress bar.
-PROFILE_CATEGORY_TOTALS = [
-    ("Bills", 1200.00),
-    ("Shopping", 800.00),
-    ("Food", 630.00),
-    ("Entertainment", 500.00),
-    ("Health", 350.00),
-    ("Other", 200.00),
-    ("Transport", 120.00),
-]
-
 RECENT_LIMIT = 5
 
 
 def format_currency(amount):
     return "₹{:,.2f}".format(amount)
+
+
+def format_date(raw):
+    """Render a stored YYYY-MM-DD expense date as 'Apr 08, 2026'.
+
+    Stored dates are written by us, but a hand-edited row shouldn't take the
+    whole page down — an unparseable value falls through unchanged.
+    """
+    if not raw:
+        return ""
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").strftime("%b %d, %Y")
+    except (TypeError, ValueError):
+        return raw
+
+
+def format_month_year(raw):
+    """Render a stored created_at timestamp as 'January 2025'.
+
+    SQLite's datetime('now') writes 'YYYY-MM-DD HH:MM:SS', but the column is
+    nullable and older rows may carry a bare date.
+    """
+    if not raw:
+        return ""
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw, fmt).strftime("%B %Y")
+        except (TypeError, ValueError):
+            continue
+    return ""
+
+
+def build_initials(name):
+    """First letter of the first and last word of a name, uppercased."""
+    parts = (name or "").split()
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0][0].upper()
+    return (parts[0][0] + parts[-1][0]).upper()
+
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
@@ -69,16 +81,124 @@ with app.app_context():
 
 
 # ------------------------------------------------------------------ #
+# Profile sections                                                    #
+#                                                                     #
+# The profile view queries once and hands the rows to these three     #
+# builders, so each one is a pure transform over sqlite3.Row objects. #
+# ------------------------------------------------------------------ #
+
+# --- Section 1: transaction history -- begin ----------------------- #
+
+def build_recent_expenses(expenses):
+    """Build the Recent Transactions rows.
+
+    `expenses` — every expense row for the user, already ordered by the SQL
+    as date DESC, id DESC. Do not re-sort.
+
+    Returns at most RECENT_LIMIT dicts, newest first, each with:
+        date        — via format_date()
+        description — "" when the column is NULL
+        category    — the stored category string
+        tone        — CATEGORY_TONE.get(category, "neutral")
+        amount      — via format_currency()
+    Returns [] for no expenses.
+    """
+    recent = []
+    for row in expenses[:RECENT_LIMIT]:
+        category = row["category"]
+        recent.append(
+            {
+                "date": format_date(row["date"]),
+                "description": row["description"] or "",
+                "category": category,
+                "tone": CATEGORY_TONE.get(category, "neutral"),
+                "amount": format_currency(row["amount"]),
+            }
+        )
+    return recent
+
+# --- Section 1: transaction history -- end ------------------------- #
+
+
+# --- Section 2: summary stats -- begin ----------------------------- #
+
+def build_summary_stats(expenses, category_totals):
+    """Build the three summary stat-card values.
+
+    `expenses` — every expense row for the user (not the truncated five).
+    `category_totals` — rows of (category, total), ordered total DESC.
+
+    Returns a dict with exactly:
+        total_spent       — via format_currency(), summed over ALL expenses
+        transaction_count — count of ALL expenses, as an int
+        top_category      — highest-total category name, or None when there
+                            are none (the template renders an em dash)
+    """
+    total_spent = sum(expense["amount"] for expense in expenses)
+    return {
+        "total_spent": format_currency(total_spent),
+        "transaction_count": len(expenses),
+        "top_category": category_totals[0]["category"] if category_totals else None,
+    }
+
+# --- Section 2: summary stats -- end ------------------------------- #
+
+
+# --- Section 3: category breakdown -- begin ------------------------ #
+
+def build_category_breakdown(category_totals):
+    """Build the Spending by Category progress rows.
+
+    `category_totals` — rows of (category, total), already ordered total
+    DESC by the SQL. Do not re-sort.
+
+    Returns one dict per category, in that order, each with:
+        category     — the category name
+        amount       — via format_currency()
+        percent      — int share of the HIGHEST total, so the first row is
+                       always 100
+        percent_step — percent rounded to the nearest multiple of 5 and
+                       clamped to 0..100; static/css/profile.css only
+                       defines .category-bar-fill--0 .. --100 in 5% steps
+                       and inline styles are forbidden
+    Guard against a zero/absent maximum. Returns [] for no totals.
+    """
+    if not category_totals:
+        return []
+
+    highest = category_totals[0]["total"] or 0
+
+    breakdown = []
+    for row in category_totals:
+        total = row["total"] or 0
+        percent = round(total / highest * 100) if highest > 0 else 0
+        percent = max(0, min(100, int(percent)))
+        breakdown.append(
+            {
+                "category": row["category"],
+                "amount": format_currency(total),
+                "percent": percent,
+                "percent_step": int(round(percent / 5.0)) * 5,
+            }
+        )
+    return breakdown
+
+# --- Section 3: category breakdown -- end -------------------------- #
+
+
+# ------------------------------------------------------------------ #
 # Routes                                                              #
 # ------------------------------------------------------------------ #
 
 @app.context_processor
 def inject_current_user():
-    # Step 4 is UI-only: the navbar name comes from the same hardcoded
-    # profile constant. Step 5 replaces this with get_user_by_id().
-    if session.get("user_id") is None:
+    # Runs for every render, error pages included — it must never raise.
+    user_id = session.get("user_id")
+    if user_id is None:
         return {"current_user_name": None}
-    return {"current_user_name": PROFILE_USER["name"]}
+
+    user = get_user_by_id(user_id)
+    return {"current_user_name": user["name"] if user is not None else None}
 
 
 @app.route("/")
@@ -161,48 +281,27 @@ def profile():
     if session.get("user_id") is None:
         return redirect(url_for("login"))
 
-    total_spent = sum(t["amount"] for t in PROFILE_TRANSACTIONS)
-    top_category = PROFILE_CATEGORY_TOTALS[0][0] if PROFILE_CATEGORY_TOTALS else None
-    max_category_total = (
-        PROFILE_CATEGORY_TOTALS[0][1] if PROFILE_CATEGORY_TOTALS else 0
-    )
+    user = get_user_by_id(session["user_id"])
+    if user is None:
+        # Session points at a row that no longer exists — e.g. the database
+        # file was recreated underneath a live session.
+        session.clear()
+        return redirect(url_for("login"))
 
-    recent_expenses = [
-        {
-            "date": t["date"],
-            "description": t["description"],
-            "category": t["category"],
-            "tone": CATEGORY_TONE.get(t["category"], "neutral"),
-            "amount": format_currency(t["amount"]),
-        }
-        for t in PROFILE_TRANSACTIONS[:RECENT_LIMIT]
-    ]
+    expenses = get_expenses_by_user(user["id"])
+    category_totals = get_category_totals(user["id"])
 
-    categories = []
-    for category, total in PROFILE_CATEGORY_TOTALS:
-        percent = round(total / max_category_total * 100) if max_category_total else 0
-        categories.append(
-            {
-                "category": category,
-                "amount": format_currency(total),
-                "percent": percent,
-                # Bar widths come from CSS classes in 5% steps — the spec
-                # forbids inline styles, so the width can't be interpolated.
-                "percent_step": round(percent / 5) * 5,
-            }
-        )
+    stats = build_summary_stats(expenses, category_totals)
 
     return render_template(
         "profile.html",
-        name=PROFILE_USER["name"],
-        email=PROFILE_USER["email"],
-        member_since=PROFILE_USER["member_since"],
-        initials=PROFILE_USER["initials"],
-        total_spent=format_currency(total_spent),
-        transaction_count=len(PROFILE_TRANSACTIONS),
-        top_category=top_category,
-        recent_expenses=recent_expenses,
-        categories=categories,
+        name=user["name"],
+        email=user["email"],
+        member_since=format_month_year(user["created_at"]),
+        initials=build_initials(user["name"]),
+        recent_expenses=build_recent_expenses(expenses),
+        categories=build_category_breakdown(category_totals),
+        **stats,
     )
 
 
