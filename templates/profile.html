@@ -19,6 +19,21 @@
         </div>
     </div>
 
+    <form class="filter-bar" method="get" action="{{ url_for('profile') }}">
+        <div class="filter-field">
+            <label for="filter-start">Start</label>
+            <input type="date" id="filter-start" name="start" value="{{ start_value }}">
+        </div>
+        <div class="filter-field">
+            <label for="filter-end">End</label>
+            <input type="date" id="filter-end" name="end" value="{{ end_value }}">
+        </div>
+        <button type="submit" class="btn-primary">Apply</button>
+        {% if filter_active %}
+        <a href="{{ url_for('profile') }}" class="btn-ghost">Clear</a>
+        {% endif %}
+    </form>
+
     <div class="stats-grid">
         <div class="stat-card">
             <span class="stat-icon"><i data-lucide="wallet"></i></span>
@@ -64,6 +79,8 @@
                 </tbody>
             </table>
         </div>
+        {% elif filter_active %}
+        <p class="profile-empty">No expenses in the selected date range.</p>
         {% else %}
         <p class="profile-empty">No expenses logged yet.</p>
         {% endif %}
@@ -87,6 +104,8 @@
             </div>
             {% endfor %}
         </div>
+        {% elif filter_active %}
+        <p class="profile-empty">No spending data for the selected date range.</p>
         {% else %}
         <p class="profile-empty">No spending data yet.</p>
         {% endif %}
