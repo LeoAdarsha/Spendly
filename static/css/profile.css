@@ -270,6 +270,49 @@
     font-variant-numeric: tabular-nums;
 }
 
+/* Date filter bar ------------------------------------------------- */
+
+.filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 1rem;
+    background: var(--paper-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 1.25rem 1.5rem;
+}
+
+.filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.filter-field label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--ink-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.filter-field input[type="date"] {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    color: var(--ink);
+    background: var(--paper);
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.filter-field input[type="date"]:focus {
+    border-color: var(--accent);
+}
+
 /* Responsive -------------------------------------------------------- */
 
 @media (max-width: 900px) {
@@ -284,6 +327,8 @@
     .profile-page { padding: 2rem 1rem; }
 
     .dashboard-card { padding: 1.25rem; }
+
+    .filter-bar { flex-direction: column; align-items: stretch; }
 
     /* Name and amount share the first line, the bar spans the row below. */
     .category-row {

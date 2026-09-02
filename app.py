@@ -1,4 +1,5 @@
 import os
+import sys
 from datetime import datetime
 
 from flask import Flask, redirect, render_template, request, session, url_for
@@ -32,6 +33,19 @@ def format_currency(amount):
     return "₹{:,.2f}".format(amount)
 
 
+def _parse_ymd(raw):
+    """Parse a 'YYYY-MM-DD' string to a datetime, or None if it can't be parsed.
+
+    Shared by format_date() (stored expense dates) and parse_date_arg() (filter
+    bounds off the query string): both accept only that one format and must
+    tolerate junk without raising.
+    """
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d")
+    except (TypeError, ValueError):
+        return None
+
+
 def format_date(raw):
     """Render a stored YYYY-MM-DD expense date as 'Apr 08, 2026'.
 
@@ -40,10 +54,19 @@ def format_date(raw):
     """
     if not raw:
         return ""
-    try:
-        return datetime.strptime(raw, "%Y-%m-%d").strftime("%b %d, %Y")
-    except (TypeError, ValueError):
-        return raw
+    parsed = _parse_ymd(raw)
+    return parsed.strftime("%b %d, %Y") if parsed else raw
+
+
+def parse_date_arg(raw):
+    """Normalise a query-string date to 'YYYY-MM-DD', or None if it doesn't parse.
+
+    Filter bounds arrive from typed URLs and stale bookmarks, so an unparseable
+    value is ignored rather than raising. Re-formatting also zero-pads a value
+    like '2026-9-1' so it compares correctly against the stored dates.
+    """
+    parsed = _parse_ymd(raw)
+    return parsed.strftime("%Y-%m-%d") if parsed else None
 
 
 def format_month_year(raw):
@@ -75,9 +98,13 @@ def build_initials(name):
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "dev-secret-key")
 
-with app.app_context():
-    init_db()
-    seed_db()
+# Bootstrap the dev database on startup, but not under pytest — the test suite
+# points DB_PATH at a throwaway file and seeds that itself, so importing the app
+# must not touch the real expense_tracker.db.
+if "pytest" not in sys.modules:
+    with app.app_context():
+        init_db()
+        seed_db()
 
 
 # ------------------------------------------------------------------ #
@@ -288,8 +315,11 @@ def profile():
         session.clear()
         return redirect(url_for("login"))
 
-    expenses = get_expenses_by_user(user["id"])
-    category_totals = get_category_totals(user["id"])
+    start = parse_date_arg(request.args.get("start"))
+    end = parse_date_arg(request.args.get("end"))
+
+    expenses = get_expenses_by_user(user["id"], start, end)
+    category_totals = get_category_totals(user["id"], start, end)
 
     stats = build_summary_stats(expenses, category_totals)
 
@@ -301,6 +331,9 @@ def profile():
         initials=build_initials(user["name"]),
         recent_expenses=build_recent_expenses(expenses),
         categories=build_category_breakdown(category_totals),
+        start_value=start or "",
+        end_value=end or "",
+        filter_active=bool(start or end),
         **stats,
     )
 

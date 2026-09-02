@@ -127,30 +127,61 @@ def get_user_by_id(user_id):
     return row
 
 
-def get_expenses_by_user(user_id):
-    conn = get_db()
-    rows = conn.execute(
-        "SELECT * FROM expenses WHERE user_id = ? ORDER BY date DESC, id DESC",
-        (user_id,),
-    ).fetchall()
-    conn.close()
-    return rows
+def _date_range_sql(start, end):
+    """Build the optional inclusive date-range fragment for an expenses query.
+
+    Returns (sql_fragment, params). Dates are stored zero-padded as
+    'YYYY-MM-DD', so a lexicographic comparison is a correct date comparison.
+    With neither bound the fragment is empty and the caller's query is
+    unchanged.
+    """
+    fragment = ""
+    params = []
+    if start:
+        fragment += " AND date >= ?"
+        params.append(start)
+    if end:
+        fragment += " AND date <= ?"
+        params.append(end)
+    return fragment, params
 
 
-def get_category_totals(user_id):
+def get_expenses_by_user(user_id, start=None, end=None):
+    """All expenses for a user, most recent first.
+
+    `start` / `end` are optional inclusive 'YYYY-MM-DD' bounds; with neither
+    the result is unchanged.
+    """
+    date_sql, date_params = _date_range_sql(start, end)
     conn = get_db()
-    rows = conn.execute(
-        """
-        SELECT category, SUM(amount) AS total
-        FROM expenses
-        WHERE user_id = ?
-        GROUP BY category
-        ORDER BY total DESC
-        """,
-        (user_id,),
-    ).fetchall()
-    conn.close()
-    return rows
+    try:
+        return conn.execute(
+            "SELECT * FROM expenses WHERE user_id = ?"
+            + date_sql
+            + " ORDER BY date DESC, id DESC",
+            (user_id, *date_params),
+        ).fetchall()
+    finally:
+        conn.close()
+
+
+def get_category_totals(user_id, start=None, end=None):
+    """Per-category spend totals for a user, highest first.
+
+    Accepts the same optional inclusive 'YYYY-MM-DD' bounds as
+    get_expenses_by_user().
+    """
+    date_sql, date_params = _date_range_sql(start, end)
+    conn = get_db()
+    try:
+        return conn.execute(
+            "SELECT category, SUM(amount) AS total FROM expenses WHERE user_id = ?"
+            + date_sql
+            + " GROUP BY category ORDER BY total DESC",
+            (user_id, *date_params),
+        ).fetchall()
+    finally:
+        conn.close()
 
 
 def create_user(name, email, password_hash):
