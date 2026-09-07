@@ -7,6 +7,7 @@ Provides:
     get_user_by_email() — look up a user row by email
     get_user_by_id()     — look up a user row by primary key
     create_user()       — insert a new user, return its new id
+    create_expense()    — insert a new expense for a user, return its new id
     get_expenses_by_user() — all expenses for a user, most recent first
     get_category_totals()  — per-category spend totals for a user, highest first
 """
@@ -194,3 +195,18 @@ def create_user(name, email, password_hash):
     user_id = cursor.lastrowid
     conn.close()
     return user_id
+
+
+def create_expense(user_id, amount, category, date, description=None):
+    conn = get_db()
+    cursor = conn.execute(
+        """
+        INSERT INTO expenses (user_id, amount, category, date, description)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (user_id, amount, category, date, description),
+    )
+    conn.commit()
+    expense_id = cursor.lastrowid
+    conn.close()
+    return expense_id

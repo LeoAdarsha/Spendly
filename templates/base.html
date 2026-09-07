@@ -23,7 +23,8 @@
                 <span class="nav-user">
                     <i data-lucide="circle-user-round"></i>{{ current_user_name }}
                 </span>
-                <a href="{{ url_for('profile') }}">Profile</a>
+                <a href="{{ url_for('analytics') }}"{% if request.endpoint == 'analytics' %} class="active"{% endif %}>Analytics</a>
+                <a href="{{ url_for('profile') }}"{% if request.endpoint == 'profile' %} class="active"{% endif %}>Profile</a>
                 <a href="{{ url_for('logout') }}">Sign out</a>
                 {% else %}
                 <a href="{{ url_for('login') }}">Sign in</a>

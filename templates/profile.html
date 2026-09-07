@@ -17,6 +17,7 @@
             <p class="profile-email">{{ email }}</p>
             <p class="profile-member">Member since {{ member_since }}</p>
         </div>
+        <a href="{{ url_for('add_expense') }}" class="btn-primary profile-header-action">Add expense</a>
     </div>
 
     <form class="filter-bar" method="get" action="{{ url_for('profile') }}">

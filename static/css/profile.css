@@ -53,6 +53,10 @@
     margin-top: 0.15rem;
 }
 
+.profile-header-action {
+    margin-left: auto;
+}
+
 /* Summary stats ---------------------------------------------------- */
 
 .stats-grid {
@@ -319,6 +323,9 @@
     .stats-grid { grid-template-columns: 1fr; }
 
     .profile-header-card { flex-direction: column; text-align: center; }
+
+    /* Stacked card: drop the auto margin so the button stays centered. */
+    .profile-header-action { margin-left: 0; }
 
     .category-row { grid-template-columns: 90px 1fr 70px; }
 }
