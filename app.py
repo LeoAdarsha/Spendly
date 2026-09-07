@@ -6,6 +6,8 @@ from flask import Flask, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import (
+    CATEGORIES,
+    create_expense,
     create_user,
     get_category_totals,
     get_db,
@@ -67,6 +69,19 @@ def parse_date_arg(raw):
     """
     parsed = _parse_ymd(raw)
     return parsed.strftime("%Y-%m-%d") if parsed else None
+
+
+def parse_amount(raw):
+    """Parse a form-submitted amount to a positive float, or None if invalid.
+
+    Rejects non-numeric input and any value <= 0 so the caller can re-render
+    the form with an error rather than storing a bad row.
+    """
+    try:
+        amount = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return amount if amount > 0 else None
 
 
 def format_month_year(raw):
@@ -348,9 +363,58 @@ def analytics():
     return render_template("analytics.html")
 
 
-@app.route("/expenses/add")
+@app.route("/expenses/add", methods=["GET", "POST"])
 def add_expense():
-    return "Add expense — coming in Step 7"
+    if session.get("user_id") is None:
+        return redirect(url_for("login"))
+
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    if request.method == "POST":
+        amount_raw = request.form.get("amount", "")
+        category = request.form.get("category", "")
+        date_raw = request.form.get("date", "")
+        description = request.form.get("description", "").strip()
+
+        amount = parse_amount(amount_raw)
+        date = parse_date_arg(date_raw)
+
+        error = None
+        if amount is None:
+            error = "Enter an amount greater than zero."
+        elif category not in CATEGORIES:
+            error = "Choose a category from the list."
+        elif date is None:
+            error = "Enter a valid date."
+        elif len(description) > 200:
+            error = "Keep the description under 200 characters."
+
+        if error is not None:
+            return render_template(
+                "add_expense.html",
+                categories=CATEGORIES,
+                error=error,
+                amount_value=amount_raw,
+                category_value=category,
+                date_value=date or today,
+                description_value=description,
+            ), 400
+
+        # The expense always belongs to the logged-in user — never a user_id
+        # smuggled in through the form.
+        create_expense(
+            session["user_id"], amount, category, date, description or None
+        )
+        return redirect(url_for("profile"))
+
+    return render_template(
+        "add_expense.html",
+        categories=CATEGORIES,
+        amount_value="",
+        category_value="",
+        date_value=today,
+        description_value="",
+    )
 
 
 @app.route("/expenses/<int:id>/edit")
