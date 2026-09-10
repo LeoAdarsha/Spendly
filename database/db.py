@@ -10,6 +10,8 @@ Provides:
     create_expense()    — insert a new expense for a user, return its new id
     get_expenses_by_user() — all expenses for a user, most recent first
     get_category_totals()  — per-category spend totals for a user, highest first
+    get_expense_by_id() — one expense scoped to its owner, or None
+    update_expense()    — update one owned expense, return rows affected
 """
 
 import os
@@ -23,8 +25,13 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "expense_tracker.db")
 
 CATEGORIES = [
-    "Food", "Transport", "Bills", "Health",
-    "Entertainment", "Shopping", "Other",
+    "Food",
+    "Transport",
+    "Bills",
+    "Health",
+    "Entertainment",
+    "Shopping",
+    "Other",
 ]
 
 
@@ -37,8 +44,7 @@ def get_db():
 
 def init_db():
     conn = get_db()
-    conn.execute(
-        """
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -46,10 +52,8 @@ def init_db():
             password_hash TEXT NOT NULL,
             created_at TEXT DEFAULT (datetime('now'))
         )
-        """
-    )
-    conn.execute(
-        """
+        """)
+    conn.execute("""
         CREATE TABLE IF NOT EXISTS expenses (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -60,8 +64,7 @@ def init_db():
             created_at TEXT DEFAULT (datetime('now')),
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
-        """
-    )
+        """)
     conn.commit()
     conn.close()
 
@@ -112,18 +115,14 @@ def seed_db():
 
 def get_user_by_email(email):
     conn = get_db()
-    row = conn.execute(
-        "SELECT * FROM users WHERE email = ?", (email,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
     conn.close()
     return row
 
 
 def get_user_by_id(user_id):
     conn = get_db()
-    row = conn.execute(
-        "SELECT * FROM users WHERE id = ?", (user_id,)
-    ).fetchone()
+    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
     return row
 
@@ -210,3 +209,41 @@ def create_expense(user_id, amount, category, date, description=None):
     expense_id = cursor.lastrowid
     conn.close()
     return expense_id
+
+
+def get_expense_by_id(expense_id, user_id):
+    """One expense row, or None if it doesn't exist or isn't owned by user_id.
+
+    Ownership is part of the query, so a caller can never load another user's
+    expense by guessing an id.
+    """
+    conn = get_db()
+    try:
+        return conn.execute(
+            "SELECT * FROM expenses WHERE id = ? AND user_id = ?",
+            (expense_id, user_id),
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def update_expense(expense_id, user_id, amount, category, date, description):
+    """Update one expense the user owns; return the number of rows changed.
+
+    `user_id` in the WHERE clause is a second ownership guard — a mismatched
+    owner (or missing id) changes nothing and returns 0. `created_at` is left
+    untouched.
+    """
+    conn = get_db()
+    cursor = conn.execute(
+        """
+        UPDATE expenses
+           SET amount = ?, category = ?, date = ?, description = ?
+         WHERE id = ? AND user_id = ?
+        """,
+        (amount, category, date, description, expense_id, user_id),
+    )
+    conn.commit()
+    rowcount = cursor.rowcount
+    conn.close()
+    return rowcount
