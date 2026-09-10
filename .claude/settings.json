@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Edit(./.env)",
+      "Write(./.env)",
+      "Bash(rm:*.env*)",
+      "Bash(rm:*migrations*)",
+      "Bash(mv:*.env*)",
+      "Bash(mv:*migrations*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect-db.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking command against protected files"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/format-python.py\"",
+            "timeout": 35,
+            "statusMessage": "Formatting Python with black"
+          }
+        ]
+      }
+    ]
+  }
+}

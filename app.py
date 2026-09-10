@@ -2,7 +2,7 @@ import os
 import sys
 from datetime import datetime
 
-from flask import Flask, redirect, render_template, request, session, url_for
+from flask import Flask, abort, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from database.db import (
@@ -11,11 +11,13 @@ from database.db import (
     create_user,
     get_category_totals,
     get_db,
+    get_expense_by_id,
     get_expenses_by_user,
     get_user_by_email,
     get_user_by_id,
     init_db,
     seed_db,
+    update_expense,
 )
 
 CATEGORY_TONE = {
@@ -131,6 +133,7 @@ if "pytest" not in sys.modules:
 
 # --- Section 1: transaction history -- begin ----------------------- #
 
+
 def build_recent_expenses(expenses):
     """Build the Recent Transactions rows.
 
@@ -138,6 +141,7 @@ def build_recent_expenses(expenses):
     as date DESC, id DESC. Do not re-sort.
 
     Returns at most RECENT_LIMIT dicts, newest first, each with:
+        id          — the expense row id, for building the edit link
         date        — via format_date()
         description — "" when the column is NULL
         category    — the stored category string
@@ -150,6 +154,7 @@ def build_recent_expenses(expenses):
         category = row["category"]
         recent.append(
             {
+                "id": row["id"],
                 "date": format_date(row["date"]),
                 "description": row["description"] or "",
                 "category": category,
@@ -159,10 +164,12 @@ def build_recent_expenses(expenses):
         )
     return recent
 
+
 # --- Section 1: transaction history -- end ------------------------- #
 
 
 # --- Section 2: summary stats -- begin ----------------------------- #
+
 
 def build_summary_stats(expenses, category_totals):
     """Build the three summary stat-card values.
@@ -183,10 +190,12 @@ def build_summary_stats(expenses, category_totals):
         "top_category": category_totals[0]["category"] if category_totals else None,
     }
 
+
 # --- Section 2: summary stats -- end ------------------------------- #
 
 
 # --- Section 3: category breakdown -- begin ------------------------ #
+
 
 def build_category_breakdown(category_totals):
     """Build the Spending by Category progress rows.
@@ -225,12 +234,14 @@ def build_category_breakdown(category_totals):
         )
     return breakdown
 
+
 # --- Section 3: category breakdown -- end -------------------------- #
 
 
 # ------------------------------------------------------------------ #
 # Routes                                                              #
 # ------------------------------------------------------------------ #
+
 
 @app.context_processor
 def inject_current_user():
@@ -259,14 +270,16 @@ def register():
         password = request.form.get("password", "")
 
         if not name or not email or not password.strip():
-            return render_template(
-                "register.html", error="All fields are required."
-            ), 400
+            return (
+                render_template("register.html", error="All fields are required."),
+                400,
+            )
 
         if get_user_by_email(email) is not None:
-            return render_template(
-                "register.html", error="Email already registered."
-            ), 400
+            return (
+                render_template("register.html", error="Email already registered."),
+                400,
+            )
 
         password_hash = generate_password_hash(password)
         user_id = create_user(name, email, password_hash)
@@ -288,9 +301,10 @@ def login():
         user = get_user_by_email(email)
 
         if user is None or not check_password_hash(user["password_hash"], password):
-            return render_template(
-                "login.html", error="Invalid email or password."
-            ), 401
+            return (
+                render_template("login.html", error="Invalid email or password."),
+                401,
+            )
 
         session["user_id"] = user["id"]
         return redirect(url_for("profile"))
@@ -301,6 +315,7 @@ def login():
 # ------------------------------------------------------------------ #
 # Placeholder routes — students will implement these                  #
 # ------------------------------------------------------------------ #
+
 
 @app.route("/terms")
 def terms():
@@ -390,21 +405,22 @@ def add_expense():
             error = "Keep the description under 200 characters."
 
         if error is not None:
-            return render_template(
-                "add_expense.html",
-                categories=CATEGORIES,
-                error=error,
-                amount_value=amount_raw,
-                category_value=category,
-                date_value=date or today,
-                description_value=description,
-            ), 400
+            return (
+                render_template(
+                    "add_expense.html",
+                    categories=CATEGORIES,
+                    error=error,
+                    amount_value=amount_raw,
+                    category_value=category,
+                    date_value=date or today,
+                    description_value=description,
+                ),
+                400,
+            )
 
         # The expense always belongs to the logged-in user — never a user_id
         # smuggled in through the form.
-        create_expense(
-            session["user_id"], amount, category, date, description or None
-        )
+        create_expense(session["user_id"], amount, category, date, description or None)
         return redirect(url_for("profile"))
 
     return render_template(
@@ -417,9 +433,67 @@ def add_expense():
     )
 
 
-@app.route("/expenses/<int:id>/edit")
+@app.route("/expenses/<int:id>/edit", methods=["GET", "POST"])
 def edit_expense(id):
-    return "Edit expense — coming in Step 8"
+    if session.get("user_id") is None:
+        return redirect(url_for("login"))
+
+    # Ownership is enforced in the query — another user's id (or a missing one)
+    # comes back as None and is treated as "not found".
+    expense = get_expense_by_id(id, session["user_id"])
+    if expense is None:
+        abort(404)
+
+    if request.method == "POST":
+        amount_raw = request.form.get("amount", "")
+        category = request.form.get("category", "")
+        date_raw = request.form.get("date", "")
+        description = request.form.get("description", "").strip()
+
+        amount = parse_amount(amount_raw)
+        date = parse_date_arg(date_raw)
+
+        error = None
+        if amount is None:
+            error = "Enter an amount greater than zero."
+        elif category not in CATEGORIES:
+            error = "Choose a category from the list."
+        elif date is None:
+            error = "Enter a valid date."
+        elif len(description) > 200:
+            error = "Keep the description under 200 characters."
+
+        if error is not None:
+            return (
+                render_template(
+                    "edit_expense.html",
+                    expense_id=id,
+                    categories=CATEGORIES,
+                    error=error,
+                    amount_value=amount_raw,
+                    category_value=category,
+                    date_value=date or expense["date"],
+                    description_value=description,
+                ),
+                400,
+            )
+
+        # The target row is pinned by (id, session user) — never a user_id
+        # smuggled in through the form.
+        update_expense(
+            id, session["user_id"], amount, category, date, description or None
+        )
+        return redirect(url_for("profile"))
+
+    return render_template(
+        "edit_expense.html",
+        expense_id=id,
+        categories=CATEGORIES,
+        amount_value=expense["amount"],
+        category_value=expense["category"],
+        date_value=expense["date"],
+        description_value=expense["description"] or "",
+    )
 
 
 @app.route("/expenses/<int:id>/delete")
